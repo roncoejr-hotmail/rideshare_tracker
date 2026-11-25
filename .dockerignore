@@ -1,0 +1,11 @@
+target/
+transport.db*
+*.log
+mvn-settings.xml
+docs-extracted/
+.agents/
+.eden/
+.muse/
+.hg/
+.sl/
+.git/
