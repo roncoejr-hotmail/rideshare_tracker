@@ -1,0 +1,47 @@
+# Transport Ledger API on the droplet. Joins the shared edge network; the public
+# door is rev-proxy (docker-compose.edge.yml in cc-engine/deploy/do), which is
+# NOT built or started from this file. This service publishes no ports.
+#
+# Target the remote daemon, then drive from THIS directory:
+#   $env:DOCKER_HOST = "ssh://root@165.22.38.152"
+#   docker compose up -d
+#
+# Persistent data is the block-storage bind mount (survives droplet
+# destruction), next to the grocery store: /mnt/volume_1784510431131/transport.
+# Seed it with a bootstrapped transport.db BEFORE first start (see README).
+
+name: transport
+
+services:
+  api:
+    build: .
+    image: transport-ledger:0.1.0
+    container_name: transport-api
+    environment:
+      TRANSPORT_DB_PATH: /data/transport.db
+      TRANSPORT_BIND: 0.0.0.0
+      TRANSPORT_PORT: "8080"
+      TRANSPORT_CORS_ORIGINS: "${TRANSPORT_CORS_ORIGINS:-http://localhost:5173,http://localhost:5174,http://localhost:5175,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175}"
+      TZ: "America/New_York"
+    # No published ports: reachable ONLY as http://transport-api:8080 on do_default.
+    expose:
+      - "8080"
+    volumes:
+      - "/mnt/volume_1784510431131/transport:/data:Z"
+    networks:
+      - do_default
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+    # 2 GB droplet shared with several JVMs: cap the heap view, no swap, so
+    # overflow OOM-restarts this container instead of thrashing the box.
+    mem_limit: 384m
+    memswap_limit: 384m
+
+networks:
+  do_default:
+    external: true

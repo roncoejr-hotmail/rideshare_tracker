@@ -9,6 +9,17 @@ https://transportation-history.miosys.org
 (If the operator points you at a dev deployment instead, use that base URL;
 everything else below is identical.)
 
+## 0. Handoff (the operator fills this in before giving you this file)
+
+```text
+Base URL: https://transportation-history.miosys.org
+API key:  <paste the bot key here>
+```
+
+Export it at the start of every session (`export TRANSPORT_API_KEY="<key>"`),
+or keep it in your secret manager. This is the only copy of the key you will
+ever see — if you lose it, the operator must disable this tenant, not recover it.
+
 ## The one rule
 
 Your API key is your identity. It selects exactly one tenant (a person or

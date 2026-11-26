@@ -20,9 +20,14 @@ public final class ApiHandler implements HttpHandler {
     private final Router router;
     private final Door door;
     private final java.util.function.Function<HttpExchange, RawTarget> targetFn;
+    private final Cors cors;
 
     public ApiHandler(Router router, Door door) {
-        this(router, door, ApiHandler::defaultTarget);
+        this(router, door, ApiHandler::defaultTarget, Cors.disabled());
+    }
+
+    public ApiHandler(Router router, Door door, Cors cors) {
+        this(router, door, ApiHandler::defaultTarget, cors);
     }
 
     /** Package-visible: tests supply the raw target to drive the handler without sockets. */
@@ -30,16 +35,42 @@ public final class ApiHandler implements HttpHandler {
             Router router,
             Door door,
             java.util.function.Function<HttpExchange, RawTarget> targetFn) {
+        this(router, door, targetFn, Cors.disabled());
+    }
+
+    ApiHandler(
+            Router router,
+            Door door,
+            java.util.function.Function<HttpExchange, RawTarget> targetFn,
+            Cors cors) {
         this.router = router;
         this.door = door;
         this.targetFn = targetFn;
+        this.cors = cors;
     }
 
     @Override
     public void handle(HttpExchange ex) throws IOException {
-        try (ex) {
+        // Not try-with-resources: the resource would close BEFORE the catch blocks
+        // run, and error responses must be sent on an open exchange.
+        try {
             RawTarget target = targetFn.apply(ex);
             String method = ex.getRequestMethod();
+            String origin = ex.getRequestHeaders().getFirst("Origin");
+            boolean cors = this.cors.isAllowed(origin) && isApi(target.rawPath());
+            if (cors) {
+                ex.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
+                ex.getResponseHeaders().set("Vary", "Origin");
+            }
+            if ("OPTIONS".equals(method)
+                    && cors
+                    && ex.getRequestHeaders().getFirst("Access-Control-Request-Method") != null) {
+                ex.getResponseHeaders().set("Access-Control-Allow-Methods", Cors.ALLOW_METHODS);
+                ex.getResponseHeaders().set("Access-Control-Allow-Headers", Cors.ALLOW_HEADERS);
+                ex.getResponseHeaders().set("Access-Control-Max-Age", Cors.MAX_AGE);
+                Json.sendEmpty(ex, 200);
+                return;
+            }
             if (isOpen(method, target.rawPath())) {
                 router.route(ex, PathCodec.segments(target.rawPath()), target.rawQuery());
                 return;
@@ -84,6 +115,8 @@ public final class ApiHandler implements HttpHandler {
         } catch (Exception e) {
             LOG.log(System.Logger.Level.ERROR, "unexpected error", e);
             Json.send(ex, 500, Json.error("internal error"));
+        } finally {
+            ex.close();
         }
     }
 

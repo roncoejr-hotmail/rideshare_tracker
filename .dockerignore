@@ -1,5 +1,6 @@
 target/
 transport.db*
+transport-operator-key.txt
 *.log
 mvn-settings.xml
 docs-extracted/

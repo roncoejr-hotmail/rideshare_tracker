@@ -10,6 +10,7 @@ import org.miosys.transport.config.Config;
 import org.miosys.transport.db.Database;
 import org.miosys.transport.db.Migrations;
 import org.miosys.transport.http.ApiHandler;
+import org.miosys.transport.http.Cors;
 import org.miosys.transport.http.Router;
 import org.miosys.transport.http.Routes;
 import org.miosys.transport.store.KeySelfService;
@@ -43,9 +44,10 @@ public final class App {
         Router router = new Router();
         Routes.register(router, store, admin, self);
         Door door = new Door(new KeyRepository(db), new TenantRepository(db));
+        Cors cors = new Cors(config.corsOrigins());
         HttpServer server = HttpServer.create(new InetSocketAddress(config.bind(), config.port()), 0);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
-        server.createContext("/", new ApiHandler(router, door));
+        server.createContext("/", new ApiHandler(router, door, cors));
         server.start();
         LOG.log(
                 System.Logger.Level.INFO,

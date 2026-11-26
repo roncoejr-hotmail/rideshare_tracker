@@ -51,6 +51,8 @@ public abstract class ApiTestBase {
     protected Database database;
     protected TransportStore store;
     protected TenantAdmin admin;
+    protected Router router;
+    protected Door door;
     protected TestClient client;
 
     @BeforeEach
@@ -63,10 +65,19 @@ public abstract class ApiTestBase {
         store = new SqliteTransportStore(database);
         admin = new SqliteTenantAdmin(database);
         KeySelfService self = new SqliteKeySelfService(database);
-        Router router = new Router();
+        router = new Router();
         Routes.register(router, store, admin, self);
-        Door door = new Door(new KeyRepository(database), new TenantRepository(database));
-        client = new TestClient(new FakeHandler(router, door));
+        door = new Door(new KeyRepository(database), new TenantRepository(database));
+        client = new TestClient(new FakeHandler(router, door, Cors.disabled()));
+    }
+
+    protected void enableCors(String csv) {
+        client =
+                new TestClient(
+                        new FakeHandler(
+                                router,
+                                door,
+                                new Cors(org.miosys.transport.config.Config.corsOrigins(csv))));
     }
 
     // ---- fake transport ----
@@ -75,8 +86,8 @@ public abstract class ApiTestBase {
         final ThreadLocal<ApiHandler.RawTarget> next = new ThreadLocal<>();
         final ApiHandler handler;
 
-        FakeHandler(Router router, Door door) {
-            this.handler = new ApiHandler(router, door, ex -> next.get());
+        FakeHandler(Router router, Door door, Cors cors) {
+            this.handler = new ApiHandler(router, door, ex -> next.get(), cors);
         }
     }
 
@@ -87,6 +98,7 @@ public abstract class ApiTestBase {
         private final InputStream reqBody;
         private final ByteArrayOutputStream respBody = new ByteArrayOutputStream();
         private int status = -1;
+        private boolean closed;
 
         FakeExchange(String method, Map<String, String> headers, byte[] body) {
             this.method = method;
@@ -121,11 +133,22 @@ public abstract class ApiTestBase {
 
         @Override
         public OutputStream getResponseBody() {
+            if (closed) {
+                return new OutputStream() {
+                    @Override
+                    public void write(int b) throws IOException {
+                        throw new IOException("stream is closed");
+                    }
+                };
+            }
             return respBody;
         }
 
         @Override
-        public void sendResponseHeaders(int code, long length) {
+        public void sendResponseHeaders(int code, long length) throws IOException {
+            if (closed) {
+                throw new IOException("stream is closed");
+            }
             status = code;
         }
 
@@ -135,7 +158,9 @@ public abstract class ApiTestBase {
         }
 
         @Override
-        public void close() {}
+        public void close() {
+            closed = true;
+        }
 
         @Override
         public Object getAttribute(String name) {
@@ -202,16 +227,22 @@ public abstract class ApiTestBase {
         /** Full header value (e.g. "Bearer abc"), or null for no header. */
         public Resp request(String method, String target, String authHeader, String body)
                 throws Exception {
+            Map<String, String> headers = new LinkedHashMap<>();
+            if (authHeader != null) {
+                headers.put("Authorization", authHeader);
+            }
+            return requestFull(method, target, headers, body);
+        }
+
+        /** Arbitrary request headers (for Origin / preflight tests). */
+        public Resp requestFull(String method, String target, Map<String, String> headers, String body)
+                throws Exception {
             String rawPath = target;
             String rawQuery = null;
             int q = target.indexOf('?');
             if (q >= 0) {
                 rawPath = target.substring(0, q);
                 rawQuery = target.substring(q + 1);
-            }
-            Map<String, String> headers = new LinkedHashMap<>();
-            if (authHeader != null) {
-                headers.put("Authorization", authHeader);
             }
             byte[] bodyBytes = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
             FakeExchange ex = new FakeExchange(method, headers, bodyBytes);

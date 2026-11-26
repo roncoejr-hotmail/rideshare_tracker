@@ -5,3 +5,4 @@ target/
 *.log
 *.zip
 docs-extracted/
+transport-operator-key.txt
